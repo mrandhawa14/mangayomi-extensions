@@ -4,7 +4,7 @@ Source get sflixSource => _sflixSource;
 
 Source _sflixSource = Source(
   name: "SFlix",
-  baseUrl: "https://sflix.to",
+  baseUrl: "https://ssflix.pro",
   lang: "en",
   typeSource: "dopeflix",
   itemType: ItemType.anime,
