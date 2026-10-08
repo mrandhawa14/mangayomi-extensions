@@ -576,9 +576,10 @@ class DopeFlix extends MProvider {
     }
 
     final video = MVideo();
+    // Mangayomi 0.8.9 starts playback from originalUrl instead of url.
     video
       ..url = streamUrl
-      ..originalUrl = playerUrl
+      ..originalUrl = streamUrl
       ..quality = "MoviesAPI - HLS"
       ..headers = {
         "Origin": _moviesApiBaseUrl,
