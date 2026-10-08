@@ -339,7 +339,7 @@ class DopeFlix extends MProvider {
     }
 
     final response = await client.get(
-      Uri.parse("$_tmdbBaseUrl$path").replace(queryParameters: query),
+      Uri.parse(_urlWithQuery("$_tmdbBaseUrl$path", query)),
       headers: {"Accept": "application/json", "User-Agent": _userAgent},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -429,12 +429,12 @@ class DopeFlix extends MProvider {
 
     final type = isTv ? "tv" : "movie";
     final response = await client.get(
-      Uri.parse("$_tmdbBaseUrl/$type/$id").replace(
-        queryParameters: {
+      Uri.parse(
+        _urlWithQuery("$_tmdbBaseUrl/$type/$id", {
           "api_key": _tmdbApiKey,
           "language": "en-US",
           "append_to_response": "credits",
-        },
+        }),
       ),
       headers: {"Accept": "application/json", "User-Agent": _userAgent},
     );
@@ -496,6 +496,17 @@ class DopeFlix extends MProvider {
     }
     anime.chapters = chapters.reversed.toList();
     return anime;
+  }
+
+  String _urlWithQuery(String url, Map<String, String> query) {
+    if (query.isEmpty) return url;
+    final encoded = query.entries
+        .map(
+          (entry) =>
+              "${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value)}",
+        )
+        .join("&");
+    return "$url${url.contains("?") ? "&" : "?"}$encoded";
   }
 
   Future<List<MVideo>> _getSflixVideoList(String url) async {
