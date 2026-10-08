@@ -9,11 +9,11 @@ const mangayomiSources = [{
     "itemType": 1,
     "isNsfw": false,
     "version": "0.1.0",
-    "appMinVerReq": "0.9.8",
+    "appMinVerReq": "0.9.9",
     "dateFormat": "",
     "dateFormatLocale": "",
     "pkgPath": "anime/src/en/cinejoy.js",
-    "notes": "Requires Mangayomi 0.9.8 or newer for protected HLS playback."
+    "notes": "Requires Mangayomi 0.9.9 or newer for protected HLS playback."
 }];
 
 class DefaultExtension extends MProvider {
