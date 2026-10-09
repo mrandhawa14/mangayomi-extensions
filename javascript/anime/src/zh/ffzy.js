@@ -1,13 +1,13 @@
 const mangayomiSources = [{
     "name": "非凡资源",
     "lang": "zh",
-    "baseUrl": "http://ffzy.tv",
+    "baseUrl": "https://ffzy.tv",
     "apiUrl": "",
-    "iconUrl": "http://ffzy.tv/template/default/img/favicon.png",
+    "iconUrl": "https://ffzy.tv/template/default/img/favicon.png",
     "typeSource": "single",
     "itemType": 1,
     "isNsfw": false,
-    "version": "0.0.25",
+    "version": "0.0.26",
     "dateFormat": "",
     "dateFormatLocale": "",
     "pkgPath": "anime/src/zh/ffzy.js"
@@ -182,7 +182,7 @@ class DefaultExtension extends MProvider {
                     "summary": "",
                     "valueIndex": 0,
                     "entries": ["ffzy", "ffzy1", "ffzy2", "ffzy3", "ffzy4", "ffzy5"],
-                    "entryValues": ["http://ffzy.tv", "http://ffzy1.tv", "http://ffzy2.tv", "http://ffzy3.tv", "http://ffzy4.tv", "http://ffzy5.tv"],
+                    "entryValues": ["https://ffzy.tv", "https://ffzy1.tv", "https://ffzy2.tv", "https://ffzy3.tv", "https://ffzy4.tv", "https://ffzy5.tv"],
                 }
             }
         ];

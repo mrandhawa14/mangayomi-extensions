@@ -105,7 +105,13 @@ class AnimeSama extends MProvider {
       }
     }
 
-    final url = Uri.parse("$baseUrl/catalogue/").replace(queryParameters: queryParams);
+    // Avoid Uri.replace(queryParameters: ...). Mangayomi 0.8.9 exposes the
+    // bridge map as Map<Object?, Object?>, which fails Uri's native cast.
+    final encodedQuery = queryParams.entries
+        .map((entry) =>
+            "${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value)}")
+        .join("&");
+    final url = "$baseUrl/catalogue/?$encodedQuery";
     final res = (await client.get(url)).body;
     final doc = parseHtml(res);
     final elements = doc.select("#list_catalog > div a");
