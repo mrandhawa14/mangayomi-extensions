@@ -1,10 +1,16 @@
 import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
+
 import 'dart/anime/anime_source_list.dart';
 import 'dart/manga/manga_source_list.dart';
 import 'dart/novel/novel_source_list.dart';
 import 'model/source.dart';
+
+const _upstreamRawRepository =
+    "raw.githubusercontent.com/m2k3a/mangayomi-extensions/";
+const _ownedRawRepository =
+    "raw.githubusercontent.com/mrandhawa14/mangayomi-extensions/";
 
 void main() {
   final jsSources = _searchJsSources(Directory("javascript"));
@@ -23,9 +29,7 @@ void genManga(List<Source> jsMangasourceList) {
   List<Source> mangaSources = [];
   mangaSources.addAll(dartMangasourceList);
   mangaSources.addAll(jsMangasourceList);
-  final List<Map<String, dynamic>> jsonList = mangaSources
-      .map((source) => source.toJson())
-      .toList();
+  final jsonList = _uniqueSourceJson(mangaSources);
   final jsonString = jsonEncode(jsonList);
 
   final file = File('index.json');
@@ -38,9 +42,7 @@ void genAnime(List<Source> jsAnimesourceList) {
   List<Source> animeSources = [];
   animeSources.addAll(dartAnimesourceList);
   animeSources.addAll(jsAnimesourceList);
-  final List<Map<String, dynamic>> jsonList = animeSources
-      .map((source) => source.toJson())
-      .toList();
+  final jsonList = _uniqueSourceJson(animeSources);
   final jsonString = jsonEncode(jsonList);
 
   final file = File('anime_index.json');
@@ -53,15 +55,32 @@ void genNovel(List<Source> jsNovelSourceList) {
   List<Source> novelSources = [];
   novelSources.addAll(dartNovelSourceList);
   novelSources.addAll(jsNovelSourceList);
-  final List<Map<String, dynamic>> jsonList = novelSources
-      .map((source) => source.toJson())
-      .toList();
+  final jsonList = _uniqueSourceJson(novelSources);
   final jsonString = jsonEncode(jsonList);
 
   final file = File('novel_index.json');
   file.writeAsStringSync(jsonString);
 
   log('JSON file created: ${file.path}');
+}
+
+Map<String, dynamic> _ownedSourceJson(Source source) {
+  return source.toJson().map((key, value) {
+    if (value is String) {
+      return MapEntry(
+        key,
+        value.replaceAll(_upstreamRawRepository, _ownedRawRepository),
+      );
+    }
+    return MapEntry(key, value);
+  });
+}
+
+List<Map<String, dynamic>> _uniqueSourceJson(Iterable<Source> sources) {
+  final seen = <String>{};
+  return sources.map(_ownedSourceJson).where((source) {
+    return seen.add(jsonEncode(source));
+  }).toList();
 }
 
 List<Source> _searchJsSources(Directory dir) {
@@ -74,6 +93,10 @@ List<Source> _searchJsSources(Directory dir) {
         if (entity is Directory) {
           sourceList.addAll(_searchJsSources(entity));
         } else if (entity is File && entity.path.endsWith('.js')) {
+          final sourcePath = entity.path
+              .replaceAll('\\', '/')
+              .split('javascript/')
+              .last;
           final regex = RegExp(
             r'const\s+mangayomiSources\s*=\s*(\[.*?\]);',
             dotAll: true,
@@ -88,7 +111,7 @@ List<Source> _searchJsSources(Directory dir) {
                 ..appMinVerReq =
                     sourceJson["appMinVerReq"] ?? defaultSource.appMinVerReq
                 ..sourceCodeUrl =
-                    "https://raw.githubusercontent.com/m2k3a/mangayomi-extensions/$branchName/javascript/${sourceJson["pkgPath"] ?? sourceJson["pkgName"]}";
+                    "https://raw.githubusercontent.com/mrandhawa14/mangayomi-extensions/$branchName/javascript/$sourcePath";
               if (sourceJson["id"] != null) {
                 source = source..id = int.tryParse("${sourceJson["id"]}");
               }

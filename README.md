@@ -1,48 +1,35 @@
 # Mangayomi Extensions
 
-This repository contains the available extension catalogues for the Mangayomi app.
+This is the independently maintained `mrandhawa14` extension repository. Its
+indexes and extension source URLs resolve from this repository and do not
+depend on an upstream pull request being accepted.
 
-## How to add the extensions
+## Add it to Mangayomi
 
-Click on one of the buttons below to add the corresponding repository/repositories:
+Use this URL as the anime extension repository in More > Settings > Browse:
 
-<a href="https://intradeus.github.io/http-protocol-redirector?r=mangayomi://add-repo?repo_name=mangayomi-extensions%26repo_url=https://github.com/m2k3a/mangayomi-extensions%26manga_url=https://m2k3a.github.io/mangayomi-extensions/index.json%26anime_url=https://m2k3a.github.io/mangayomi-extensions/anime_index.json%26novel_url=https://m2k3a.github.io/mangayomi-extensions/novel_index.json"><img alt="Add all repositories" src="images/add-all-repositories.png" height="35"></a>
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=mangayomi://add-repo?repo_name=mangayomi-extensions%26repo_url=https://github.com/m2k3a/mangayomi-extensions%26manga_url=https://m2k3a.github.io/mangayomi-extensions/index.json"><img alt="Add manga repository" src="images/add-manga-repository.png" height="35"></a>
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=mangayomi://add-repo?repo_name=mangayomi-extensions%26repo_url=https://github.com/m2k3a/mangayomi-extensions%26anime_url=https://m2k3a.github.io/mangayomi-extensions/anime_index.json"><img alt="Add anime repository" src="images/add-anime-repository.png" height="35"></a>
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=mangayomi://add-repo?repo_name=mangayomi-extensions%26repo_url=https://github.com/m2k3a/mangayomi-extensions%26novel_url=https://m2k3a.github.io/mangayomi-extensions/novel_index.json"><img alt="Add novel repository" src="images/add-novel-repository.png" height="35"></a>
-
-If you installed the app via Live Container, then use the following buttons instead:
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=livecontainer://open-url?url=bWFuZ2F5b21pOi8vYWRkLXJlcG8/cmVwb19uYW1lPW1hbmdheW9taS1leHRlbnNpb25zJnJlcG9fdXJsPWh0dHBzOi8vZ2l0aHViLmNvbS9rb2Rqb2RldmYvbWFuZ2F5b21pLWV4dGVuc2lvbnMmbWFuZ2FfdXJsPWh0dHBzOi8va29kam9kZXZmLmdpdGh1Yi5pby9tYW5nYXlvbWktZXh0ZW5zaW9ucy9pbmRleC5qc29uJmFuaW1lX3VybD1odHRwczovL2tvZGpvZGV2Zi5naXRodWIuaW8vbWFuZ2F5b21pLWV4dGVuc2lvbnMvYW5pbWVfaW5kZXguanNvbiZub3ZlbF91cmw9aHR0cHM6Ly9rb2Rqb2RldmYuZ2l0aHViLmlvL21hbmdheW9taS1leHRlbnNpb25zL25vdmVsX2luZGV4Lmpzb24="><img alt="Add all repositories" src="images/add-all-repositories-livecontainer.png" height="35"></a>
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=livecontainer://open-url?url=bWFuZ2F5b21pOi8vYWRkLXJlcG8/cmVwb19uYW1lPW1hbmdheW9taS1leHRlbnNpb25zJnJlcG9fdXJsPWh0dHBzOi8vZ2l0aHViLmNvbS9rb2Rqb2RldmYvbWFuZ2F5b21pLWV4dGVuc2lvbnMmbWFuZ2FfdXJsPWh0dHBzOi8va29kam9kZXZmLmdpdGh1Yi5pby9tYW5nYXlvbWktZXh0ZW5zaW9ucy9pbmRleC5qc29u"><img alt="Add manga repository" src="images/add-manga-repository-livecontainer.png" height="35"></a>
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=livecontainer://open-url?url=bWFuZ2F5b21pOi8vYWRkLXJlcG8/cmVwb19uYW1lPW1hbmdheW9taS1leHRlbnNpb25zJnJlcG9fdXJsPWh0dHBzOi8vZ2l0aHViLmNvbS9rb2Rqb2RldmYvbWFuZ2F5b21pLWV4dGVuc2lvbnMmYW5pbWVfdXJsPWh0dHBzOi8va29kam9kZXZmLmdpdGh1Yi5pby9tYW5nYXlvbWktZXh0ZW5zaW9ucy9hbmltZV9pbmRleC5qc29u"><img alt="Add anime repository" src="images/add-anime-repository-livecontainer.png" height="35"></a>
-
-<a href="https://intradeus.github.io/http-protocol-redirector?r=livecontainer://open-url?url=bWFuZ2F5b21pOi8vYWRkLXJlcG8/cmVwb19uYW1lPW1hbmdheW9taS1leHRlbnNpb25zJnJlcG9fdXJsPWh0dHBzOi8vZ2l0aHViLmNvbS9rb2Rqb2RldmYvbWFuZ2F5b21pLWV4dGVuc2lvbnMmbm92ZWxfdXJsPWh0dHBzOi8va29kam9kZXZmLmdpdGh1Yi5pby9tYW5nYXlvbWktZXh0ZW5zaW9ucy9ub3ZlbF9pbmRleC5qc29u"><img alt="Add novel repository" src="images/add-novel-repository-livecontainer.png" height="35"></a>
-
-Or add them manually in the app (More -> Settings -> Browse):
-
-manga repo
-```
-https://m2k3a.github.io/mangayomi-extensions/index.json
+```text
+https://raw.githubusercontent.com//mrandhawa14/mangayomi-extensions/refs/heads/main/anime_index.json
 ```
 
-anime repo 
-```
-https://m2k3a.github.io/mangayomi-extensions/anime_index.json
+The double slash intentionally keeps older Mangayomi releases from deriving a
+GitHub profile picture for the repository icon. GitHub serves the same file as
+the canonical single-slash URL.
+
+The manga and novel indexes are also available:
+
+```text
+https://raw.githubusercontent.com/mrandhawa14/mangayomi-extensions/main/index.json
+https://raw.githubusercontent.com/mrandhawa14/mangayomi-extensions/main/novel_index.json
 ```
 
-novel repo 
-```
-https://m2k3a.github.io/mangayomi-extensions/novel_index.json
-```
+This fork currently includes the maintained SFlix and MoviesFlix provider,
+CineJoy, and compatibility fixes used by the curated index.
 
+## Upstream and license
 
-## License
+This repository is based on `m2k3a/mangayomi-extensions` and retains its
+copyright and attribution notices.
 
     Copyright 2023 Moustapha Kodjo Amadou
 
@@ -58,8 +45,7 @@ https://m2k3a.github.io/mangayomi-extensions/novel_index.json
     See the License for the specific language governing permissions and
     limitations under the License.
 
-
-
 ## Disclaimer
 
-The developer of this application does not have any affiliation with the content providers available.
+The developer of this application does not have any affiliation with the
+content providers available.
