@@ -19,17 +19,20 @@ class DopeFlix extends MProvider {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
-  bool get _isSflix => source.name == "SFlix";
+  bool get _usesSflixApi =>
+      source.name == "SFlix" || source.name == "MoviesFlix";
 
   @override
   String get baseUrl => getPreferenceValue(
     source.id,
-    _isSflix ? "preferred_domain_v2" : "preferred_domain",
+    _usesSflixApi ? "preferred_domain_v2" : "preferred_domain",
   );
+
+  bool get _usesMoviesFlixWebview => source.name == "MoviesFlix";
 
   @override
   Future<MPages> getPopular(int page) async {
-    if (_isSflix) {
+    if (_usesSflixApi) {
       final type = getPreferenceValue(source.id, "preferred_popular_page_v2");
       final path = type == "tv" ? "/tv/popular" : "/movie/popular";
       return _getTmdbPages(path, page, type == "tv" ? "tv" : "movie");
@@ -45,7 +48,7 @@ class DopeFlix extends MProvider {
 
   @override
   Future<MPages> getLatestUpdates(int page) async {
-    if (_isSflix) {
+    if (_usesSflixApi) {
       final type = getPreferenceValue(source.id, "preferred_latest_page_v2");
       final path = type == "tv" ? "/tv/on_the_air" : "/movie/now_playing";
       return _getTmdbPages(path, page, type == "tv" ? "tv" : "movie");
@@ -71,7 +74,7 @@ class DopeFlix extends MProvider {
 
   @override
   Future<MPages> search(String query, int page, FilterList filterList) async {
-    if (_isSflix) {
+    if (_usesSflixApi) {
       return _searchSflix(query, page, filterList);
     }
 
@@ -118,7 +121,7 @@ class DopeFlix extends MProvider {
 
   @override
   Future<MManga> getDetail(String url) async {
-    if (_isSflix) {
+    if (_usesSflixApi) {
       return _getSflixDetail(url);
     }
 
@@ -192,7 +195,7 @@ class DopeFlix extends MProvider {
 
   @override
   Future<List<MVideo>> getVideoList(String url) async {
-    if (_isSflix) {
+    if (_usesSflixApi) {
       return _getSflixVideoList(url);
     }
 
@@ -344,7 +347,7 @@ class DopeFlix extends MProvider {
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
-        "SFlix catalogue request failed (${response.statusCode}).",
+        "${source.name} catalogue request failed (${response.statusCode}).",
       );
     }
 
@@ -424,7 +427,9 @@ class DopeFlix extends MProvider {
     final isTv = url.contains("/serie/");
     final id = _sflixTmdbId(url);
     if (id.isEmpty) {
-      throw Exception("SFlix could not read the title ID from this URL.");
+      throw Exception(
+        "${source.name} could not read the title ID from this URL.",
+      );
     }
 
     final type = isTv ? "tv" : "movie";
@@ -439,7 +444,9 @@ class DopeFlix extends MProvider {
       headers: {"Accept": "application/json", "User-Agent": _userAgent},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception("SFlix title details failed (${response.statusCode}).");
+      throw Exception(
+        "${source.name} title details failed (${response.statusCode}).",
+      );
     }
 
     final data = json.decode(response.body);
@@ -475,7 +482,9 @@ class DopeFlix extends MProvider {
     if (!isTv) {
       final chapter = MChapter();
       chapter.name = "Movie";
-      chapter.url = "$baseUrl/watch/movie/$slug-$id";
+      chapter.url = _usesMoviesFlixWebview
+          ? "$baseUrl/movies/$slug-2${id}A3/"
+          : "$baseUrl/watch/movie/$slug-$id";
       chapters.add(chapter);
     } else {
       final seasons = (data["seasons"] as List?) ?? [];
@@ -488,8 +497,9 @@ class DopeFlix extends MProvider {
         for (int episode = 1; episode <= episodeCount; episode++) {
           final chapter = MChapter();
           chapter.name = "Season $seasonNumber Episode $episode";
-          chapter.url =
-              "$baseUrl/watch/serie/$slug-$id/season-$seasonNumber/episode-$episode";
+          chapter.url = _usesMoviesFlixWebview
+              ? "$baseUrl/serie/$id-$seasonNumber-$episode/$slug/"
+              : "$baseUrl/watch/serie/$slug-$id/season-$seasonNumber/episode-$episode";
           chapters.add(chapter);
         }
       }
@@ -513,18 +523,26 @@ class DopeFlix extends MProvider {
     final isTv = url.contains("/serie/");
     final id = _sflixTmdbId(url);
     if (id.isEmpty) {
-      throw Exception("SFlix could not read the video ID from this URL.");
+      throw Exception(
+        "${source.name} could not read the video ID from this URL.",
+      );
     }
 
     int season = 1;
     int episode = 1;
     final seasonMatch = RegExp(r"/season-(\d+)").firstMatch(url);
     final episodeMatch = RegExp(r"/episode-(\d+)").firstMatch(url);
+    final moviesFlixEpisodeMatch = RegExp(r"/serie/\d+-(\d+)-(\d+)(?:/|$)")
+        .firstMatch(url);
     if (seasonMatch != null) {
       season = int.tryParse(seasonMatch.group(1) ?? "1") ?? 1;
     }
     if (episodeMatch != null) {
       episode = int.tryParse(episodeMatch.group(1) ?? "1") ?? 1;
+    }
+    if (moviesFlixEpisodeMatch != null) {
+      season = int.tryParse(moviesFlixEpisodeMatch.group(1) ?? "1") ?? 1;
+      episode = int.tryParse(moviesFlixEpisodeMatch.group(2) ?? "1") ?? 1;
     }
 
     final playerPath = isTv ? "/tv/$id/$season/$episode" : "/movie/$id";
@@ -541,20 +559,24 @@ class DopeFlix extends MProvider {
       headers: requestHeaders,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception("SFlix video server failed (${response.statusCode}).");
+      throw Exception(
+        "${source.name} video server failed (${response.statusCode}).",
+      );
     }
 
     final data = json.decode(response.body);
     final sources = (data["sources"] as List?) ?? [];
     if (data["result"] != true || sources.isEmpty) {
       throw Exception(
-        "SFlix did not return a video for this title or episode.",
+        "${source.name} did not return a video for this title or episode.",
       );
     }
 
     final streamUrl = sources.first["url"] ?? "";
     if (streamUrl.toString().isEmpty) {
-      throw Exception("SFlix returned a video entry without a stream URL.");
+      throw Exception(
+        "${source.name} returned a video entry without a stream URL.",
+      );
     }
 
     List<MTrack> subtitles = _moviesApiTracks(
@@ -616,12 +638,30 @@ class DopeFlix extends MProvider {
   }
 
   String _sflixTmdbId(String url) {
+    final moviesFlixMovieMatch = RegExp(r"/movies/[^/]*-2(\d+)A3(?:/|$)")
+        .firstMatch(url);
+    if (moviesFlixMovieMatch != null) {
+      return moviesFlixMovieMatch.group(1) ?? "";
+    }
+
+    final moviesFlixSeriesMatch = RegExp(r"/serie/(\d+)(?:-\d+){0,2}/")
+        .firstMatch(url);
+    if (moviesFlixSeriesMatch != null) {
+      return moviesFlixSeriesMatch.group(1) ?? "";
+    }
+
     final match = RegExp(r"/(?:movie|serie)/(?:[^/]*-)?(\d+)(?:/|$)")
         .firstMatch(url);
     return match?.group(1) ?? "";
   }
 
   String _sflixDetailPath(String mediaType, String title, String id) {
+    if (_usesMoviesFlixWebview) {
+      return mediaType == "tv"
+          ? "/serie/$id/${_createSlug(title)}/"
+          : "/movies/${_createSlug(title)}-2${id}A3/";
+    }
+
     final path = mediaType == "tv" ? "serie" : "movie";
     return "/$path/${_createSlug(title)}-$id";
   }
@@ -695,9 +735,9 @@ class DopeFlix extends MProvider {
 
   @override
   List<dynamic> getFilterList() {
-    if (_isSflix) {
+    if (_usesSflixApi) {
       return [
-        SelectFilter("TypeFilter", "Type", 0, [
+        SelectFilter("TypeFilter", "Search type", 0, [
           SelectFilterOption("Movies", "movie"),
           SelectFilterOption("TV Shows", "tv"),
         ]),
@@ -854,11 +894,20 @@ class DopeFlix extends MProvider {
       if (source.name == "SFlix")
         ListPreference(
           key: "preferred_domain_v2",
-          title: "Preferred domain",
-          summary: "Uses https://ssflix.pro/home",
+          title: "Website",
+          summary: "Use the current SFlix website.",
           valueIndex: 0,
           entries: ["ssflix.pro"],
           entryValues: ["https://ssflix.pro"],
+        ),
+      if (source.name == "MoviesFlix")
+        ListPreference(
+          key: "preferred_domain_v2",
+          title: "Website",
+          summary: "Use the MoviesFlix alternate website.",
+          valueIndex: 0,
+          entries: ["moviesflix.uk"],
+          entryValues: ["https://moviesflix.uk"],
         ),
       ListPreference(
         key: "preferred_quality",
@@ -900,7 +949,7 @@ class DopeFlix extends MProvider {
           "Spanish",
         ],
       ),
-      if (_isSflix)
+      if (_usesSflixApi)
         ListPreference(
           key: "preferred_latest_page_v2",
           title: "Preferred latest page",
@@ -909,7 +958,7 @@ class DopeFlix extends MProvider {
           entries: ["Movies", "TV Shows"],
           entryValues: ["movie", "tv"],
         ),
-      if (!_isSflix)
+      if (!_usesSflixApi)
         ListPreference(
           key: "preferred_latest_page",
           title: "Preferred latest page",
@@ -918,7 +967,7 @@ class DopeFlix extends MProvider {
           entries: ["Movies", "TV Shows"],
           entryValues: ["Latest Movies", "Latest TV Shows"],
         ),
-      if (_isSflix)
+      if (_usesSflixApi)
         ListPreference(
           key: "preferred_popular_page_v2",
           title: "Preferred popular page",
@@ -927,7 +976,7 @@ class DopeFlix extends MProvider {
           entries: ["Movies", "TV Shows"],
           entryValues: ["movie", "tv"],
         ),
-      if (!_isSflix)
+      if (!_usesSflixApi)
         ListPreference(
           key: "preferred_popular_page",
           title: "Preferred popular page",
