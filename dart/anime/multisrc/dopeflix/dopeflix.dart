@@ -15,6 +15,16 @@ class DopeFlix extends MProvider {
   static const String _moviesApiBaseUrl = "https://moviesapi.to";
   static const String _moviesApiPlayerKey =
       "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13";
+  static const String _vidsparkBaseUrl = "https://cdn.vidspark.to";
+  static const String _vidsparkPlayerKey =
+      "f3b72e73c80c9a996574379798703796a1936efa3516a7105cb0e43048b46b5a";
+  static const List<List<String>> _vidsparkProviders = [
+    ["scrapify", "Alpha"],
+    ["quasar", "Quasar"],
+    ["oreon", "Oreon"],
+    ["vaplayer", "Beta"],
+    ["fsonic", "Nebula"],
+  ];
   static const String _userAgent =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -330,6 +340,7 @@ class DopeFlix extends MProvider {
     int page,
     String fallbackType, {
     Map<String, String>? extraQuery,
+    Map<String, String>? emptyFallbackQuery,
   }) async {
     final query = <String, String>{
       "api_key": _tmdbApiKey,
@@ -353,6 +364,14 @@ class DopeFlix extends MProvider {
 
     final data = json.decode(response.body);
     final results = (data["results"] as List?) ?? [];
+    if (results.isEmpty && emptyFallbackQuery != null) {
+      return _getTmdbPages(
+        path,
+        page,
+        fallbackType,
+        extraQuery: emptyFallbackQuery,
+      );
+    }
     final animeList = <MManga>[];
 
     for (var item in results) {
@@ -406,8 +425,37 @@ class DopeFlix extends MProvider {
 
     final extraQuery = <String, String>{};
     if (query.isNotEmpty) {
-      extraQuery["query"] = query;
-      return _getTmdbPages("/search/$type", page, type, extraQuery: extraQuery);
+      final trimmedQuery = query.trim();
+      final yearKey = type == "tv"
+          ? "first_air_date_year"
+          : "primary_release_year";
+      extraQuery["query"] = trimmedQuery;
+      if (year.isNotEmpty && year != "all") {
+        extraQuery[yearKey] = year;
+      }
+
+      Map<String, String>? emptyFallbackQuery;
+      final queryWithYear = RegExp(
+        r"^(.*?\S)\s*[\(\[]?((?:19|20)\d{2})[\)\]]?\s*$",
+      ).firstMatch(trimmedQuery);
+      if (queryWithYear != null) {
+        final title = queryWithYear.group(1)?.trim() ?? "";
+        final typedYear = queryWithYear.group(2) ?? "";
+        if (title.isNotEmpty && typedYear.isNotEmpty) {
+          emptyFallbackQuery = <String, String>{
+            "query": title,
+            yearKey: typedYear,
+          };
+        }
+      }
+
+      return _getTmdbPages(
+        "/search/$type",
+        page,
+        type,
+        extraQuery: extraQuery,
+        emptyFallbackQuery: emptyFallbackQuery,
+      );
     }
 
     extraQuery["sort_by"] = "popularity.desc";
@@ -554,46 +602,233 @@ class DopeFlix extends MProvider {
       "User-Agent": _userAgent,
       "x-player-key": _moviesApiPlayerKey,
     };
-    final response = await client.get(
-      Uri.parse("$_moviesApiBaseUrl/api/vidora/v1$playerPath"),
-      headers: requestHeaders,
+    final response = await _getMoviesApiResponse(
+      "$_moviesApiBaseUrl/api/vidora/v1$playerPath",
+      requestHeaders,
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        "${source.name} video server failed (${response.statusCode}).",
-      );
+    if (response != null &&
+        response.statusCode >= 200 &&
+        response.statusCode < 300) {
+      final data = _decodeJsonObject(response.body);
+      final sources = (data?["sources"] as List?) ?? [];
+      if (data?["result"] == true && sources.isNotEmpty) {
+        final streamUrl = sources.first["url"] ?? "";
+        if (streamUrl.toString().isNotEmpty) {
+          final isPlayable = await _isPlayableStream(
+            streamUrl.toString(),
+            _moviesApiBaseUrl,
+            playerUrl,
+          );
+          if (isPlayable) {
+            List<MTrack> subtitles = _moviesApiTracks(
+              (sources.first["tracks"] as List?) ?? [],
+            );
+            if (subtitles.isEmpty) {
+              try {
+                final subtitleResponse = await client
+                    .get(
+                      Uri.parse(
+                        "$_moviesApiBaseUrl/api/vidora/v1/subtitles$playerPath",
+                      ),
+                      headers: requestHeaders,
+                    )
+                    .timeout(const Duration(seconds: 8));
+                if (subtitleResponse.statusCode >= 200 &&
+                    subtitleResponse.statusCode < 300) {
+                  final subtitleData = _decodeJsonObject(subtitleResponse.body);
+                  subtitles = _moviesApiTracks(
+                    (subtitleData?["tracks"] as List?) ?? [],
+                    useSrc: true,
+                  );
+                }
+              } catch (_) {}
+            }
+
+            return [
+              _createSflixVideo(
+                streamUrl.toString(),
+                "MoviesAPI - HLS",
+                _moviesApiBaseUrl,
+                playerUrl,
+                subtitles,
+              ),
+            ];
+          }
+        }
+      }
     }
 
-    final data = json.decode(response.body);
-    final sources = (data["sources"] as List?) ?? [];
-    if (data["result"] != true || sources.isEmpty) {
-      throw Exception(
-        "${source.name} did not return a video for this title or episode.",
-      );
+    final fallbackVideos = await _getVidsparkVideos(playerPath);
+    if (fallbackVideos.isNotEmpty) {
+      return fallbackVideos;
     }
 
-    final streamUrl = sources.first["url"] ?? "";
-    if (streamUrl.toString().isEmpty) {
-      throw Exception(
-        "${source.name} returned a video entry without a stream URL.",
-      );
-    }
-
-    List<MTrack> subtitles = _moviesApiTracks(
-      (sources.first["tracks"] as List?) ?? [],
+    throw Exception(
+      "No working stream is currently available for this title or episode. "
+      "Try again later or choose another source.",
     );
-    if (subtitles.isEmpty) {
-      final subtitleResponse = await client.get(
-        Uri.parse("$_moviesApiBaseUrl/api/vidora/v1/subtitles$playerPath"),
-        headers: requestHeaders,
+  }
+
+  Future<dynamic> _getMoviesApiResponse(
+    String url,
+    Map<String, String> headers,
+  ) async {
+    dynamic lastResponse;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        lastResponse = await client
+            .get(Uri.parse(url), headers: headers)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        return null;
+      }
+
+      final status = lastResponse?.statusCode as int?;
+      final isTemporary =
+          status == 429 || status == 502 || status == 503 || status == 504;
+      if (!isTemporary || attempt == 1) {
+        return lastResponse;
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    return lastResponse;
+  }
+
+  Future<List<MVideo>> _getVidsparkVideos(String playerPath) async {
+    final deadline = DateTime.now().millisecondsSinceEpoch + 18000;
+    for (var provider in _vidsparkProviders) {
+      if (DateTime.now().millisecondsSinceEpoch >= deadline) {
+        break;
+      }
+      final video = await _getVidsparkVideo(playerPath, provider, deadline);
+      if (video != null) {
+        return [video];
+      }
+    }
+    return [];
+  }
+
+  Future<MVideo?> _getVidsparkVideo(
+    String playerPath,
+    List<String> provider,
+    int deadline,
+  ) async {
+    final playerUrl = "$_vidsparkBaseUrl$playerPath";
+    final requestUrl = _urlWithQuery(
+      "$_vidsparkBaseUrl/api/vidora/v1$playerPath",
+      {"source": provider[0]},
+    );
+    try {
+      final requestTimeLeft = deadline - DateTime.now().millisecondsSinceEpoch;
+      if (requestTimeLeft <= 0) {
+        return null;
+      }
+      final response = await client
+          .get(
+            Uri.parse(requestUrl),
+            headers: {
+              "Accept": "application/json",
+              "Origin": _vidsparkBaseUrl,
+              "Referer": playerUrl,
+              "User-Agent": _userAgent,
+              "x-player-key": _vidsparkPlayerKey,
+            },
+          )
+          .timeout(
+            Duration(
+              milliseconds: requestTimeLeft < 8000 ? requestTimeLeft : 8000,
+            ),
+          );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+
+      final data = _decodeJsonObject(response.body);
+      final sources = (data?["sources"] as List?) ?? [];
+      if (data?["result"] != true || sources.isEmpty) {
+        return null;
+      }
+      final streamUrl = sources.first["url"] ?? "";
+      if (streamUrl.toString().isEmpty) {
+        return null;
+      }
+      final validationTimeLeft =
+          deadline - DateTime.now().millisecondsSinceEpoch;
+      if (validationTimeLeft <= 0) {
+        return null;
+      }
+      final isPlayable = await _isPlayableStream(
+        streamUrl.toString(),
+        _vidsparkBaseUrl,
+        playerUrl,
+        timeoutMilliseconds: validationTimeLeft < 8000
+            ? validationTimeLeft
+            : 8000,
       );
-      if (subtitleResponse.statusCode >= 200 &&
-          subtitleResponse.statusCode < 300) {
-        final subtitleData = json.decode(subtitleResponse.body);
-        subtitles = _moviesApiTracks(
-          (subtitleData["tracks"] as List?) ?? [],
-          useSrc: true,
-        );
+      if (!isPlayable) {
+        return null;
+      }
+
+      final subtitles = _moviesApiTracks(
+        (sources.first["tracks"] as List?) ?? [],
+        baseUrl: _vidsparkBaseUrl,
+      );
+      return _createSflixVideo(
+        streamUrl.toString(),
+        "VidSpark ${provider[1]} - HLS",
+        _vidsparkBaseUrl,
+        playerUrl,
+        subtitles,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _isPlayableStream(
+    String streamUrl,
+    String origin,
+    String playerUrl, {
+    int timeoutMilliseconds = 8000,
+  }) async {
+    if (!streamUrl.toLowerCase().contains(".m3u8")) {
+      return true;
+    }
+    try {
+      final response = await client
+          .get(
+            Uri.parse(streamUrl),
+            headers: {
+              "Origin": origin,
+              "Referer": playerUrl,
+              "User-Agent": _userAgent,
+            },
+          )
+          .timeout(Duration(milliseconds: timeoutMilliseconds));
+      final contentType = response.headers["content-type"]?.toLowerCase() ?? "";
+      return response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          (contentType.contains("mpegurl") ||
+              response.body.trimLeft().startsWith("#EXTM3U"));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  MVideo _createSflixVideo(
+    String streamUrl,
+    String quality,
+    String origin,
+    String referer,
+    List<MTrack> subtitles,
+  ) {
+    var sortedSubtitles = subtitles;
+    if (subtitles.isNotEmpty) {
+      try {
+        sortedSubtitles = sortSubs(subtitles, source.id);
+      } catch (_) {
+        // Older Mangayomi builds can lack a saved subtitle preference entry.
+        sortedSubtitles = subtitles;
       }
     }
 
@@ -602,17 +837,30 @@ class DopeFlix extends MProvider {
     video
       ..url = streamUrl
       ..originalUrl = streamUrl
-      ..quality = "MoviesAPI - HLS"
+      ..quality = quality
       ..headers = {
-        "Origin": _moviesApiBaseUrl,
-        "Referer": "$_moviesApiBaseUrl/",
+        "Origin": origin,
+        "Referer": referer,
         "User-Agent": _userAgent,
       }
-      ..subtitles = sortSubs(subtitles, source.id);
-    return [video];
+      ..subtitles = sortedSubtitles;
+    return video;
   }
 
-  List<MTrack> _moviesApiTracks(List tracks, {bool useSrc = false}) {
+  dynamic _decodeJsonObject(String body) {
+    try {
+      final data = json.decode(body);
+      return data is Map ? data : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<MTrack> _moviesApiTracks(
+    List tracks, {
+    bool useSrc = false,
+    String baseUrl = _moviesApiBaseUrl,
+  }) {
     final subtitles = <MTrack>[];
     for (var track in tracks) {
       final rawFile = useSrc ? track["src"] : track["file"];
@@ -625,7 +873,7 @@ class DopeFlix extends MProvider {
         file = "/api/vidora/$file";
       }
       if (!file.startsWith("http")) {
-        file = "$_moviesApiBaseUrl${file.startsWith("/") ? "" : "/"}$file";
+        file = "$baseUrl${file.startsWith("/") ? "" : "/"}$file";
       }
 
       final subtitle = MTrack();
