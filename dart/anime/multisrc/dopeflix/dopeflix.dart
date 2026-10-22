@@ -24,6 +24,41 @@ class DopeFlix extends MProvider {
     ["fsonic", "Nebula"],
     ["vaplayer", "Beta"],
   ];
+  static const String _openSubtitlesBaseUrl =
+      "https://opensubtitles-v3.strem.io/subtitles";
+  static const Map<String, String> _openSubtitlesLanguages = {
+    "ara": "Arabic",
+    "chi": "Chinese",
+    "cze": "Czech",
+    "dan": "Danish",
+    "dut": "Dutch",
+    "ell": "Greek",
+    "eng": "English",
+    "fin": "Finnish",
+    "fre": "French",
+    "ger": "German",
+    "heb": "Hebrew",
+    "hin": "Hindi",
+    "hrv": "Croatian",
+    "hun": "Hungarian",
+    "ind": "Indonesian",
+    "ita": "Italian",
+    "jpn": "Japanese",
+    "kor": "Korean",
+    "nor": "Norwegian",
+    "pob": "Portuguese (Brazil)",
+    "pol": "Polish",
+    "por": "Portuguese",
+    "ron": "Romanian",
+    "rum": "Romanian",
+    "rus": "Russian",
+    "spa": "Spanish",
+    "swe": "Swedish",
+    "tha": "Thai",
+    "tur": "Turkish",
+    "ukr": "Ukrainian",
+    "vie": "Vietnamese",
+  };
   static const String _userAgent =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -595,8 +630,15 @@ class DopeFlix extends MProvider {
     final playerPath = isTv ? "/tv/$id/$season/$episode" : "/movie/$id";
     // Query every server at once so the player can switch between all the
     // working ones. MoviesAPI is Server 1 on ssflix.pro, so it stays first.
-    // Only MoviesAPI publishes subtitles, so every server shares its list.
-    final subtitlesFuture = _getMoviesApiSubtitles(playerPath);
+    // Only MoviesAPI publishes subtitles, so every server shares its list,
+    // with OpenSubtitles covering titles MoviesAPI has not encoded.
+    final subtitlesFuture = _getSharedSubtitles(
+      playerPath,
+      isTv,
+      id,
+      season,
+      episode,
+    );
     final deadline = DateTime.now().millisecondsSinceEpoch + 18000;
     List<Future<MVideo?>> requests = [
       _getMoviesApiVideo(playerPath, subtitlesFuture),
@@ -675,6 +717,74 @@ class DopeFlix extends MProvider {
       }
     } catch (_) {}
     return null;
+  }
+
+  Future<List<MTrack>> _getSharedSubtitles(
+    String playerPath,
+    bool isTv,
+    String id,
+    int season,
+    int episode,
+  ) async {
+    final subtitles = await _getMoviesApiSubtitles(playerPath);
+    if (subtitles.isNotEmpty) {
+      return subtitles;
+    }
+    // The interpreter mishandles `return await`, so await into a local first.
+    final fallback = await _getOpenSubtitles(isTv, id, season, episode);
+    return fallback;
+  }
+
+  Future<List<MTrack>> _getOpenSubtitles(
+    bool isTv,
+    String id,
+    int season,
+    int episode,
+  ) async {
+    final subtitles = <MTrack>[];
+    try {
+      final idsResponse = await client
+          .get(
+            // One literal: the interpreter rejects adjacent interpolated strings.
+            Uri.parse(
+              "$_tmdbBaseUrl/${isTv ? "tv" : "movie"}/$id/external_ids?api_key=$_tmdbApiKey",
+            ),
+          )
+          .timeout(const Duration(seconds: 6));
+      final imdbId = _decodeJsonObject(idsResponse.body)?["imdb_id"] ?? "";
+      if (!imdbId.toString().startsWith("tt")) {
+        return subtitles;
+      }
+
+      final path = isTv ? "series/$imdbId:$season:$episode" : "movie/$imdbId";
+      final response = await client
+          .get(Uri.parse("$_openSubtitlesBaseUrl/$path.json"))
+          .timeout(const Duration(seconds: 8));
+      final tracks =
+          (_decodeJsonObject(response.body)?["subtitles"] as List?) ?? [];
+
+      // Keep the two most popular files per language so the list stays short.
+      final perLanguage = <String, int>{};
+      for (var track in tracks) {
+        final url = (track["url"] ?? "").toString();
+        final lang = (track["lang"] ?? "").toString();
+        if (url.isEmpty || lang.isEmpty) {
+          continue;
+        }
+        final count = (perLanguage[lang] ?? 0) + 1;
+        if (count > 2) {
+          continue;
+        }
+        perLanguage[lang] = count;
+        final name = _openSubtitlesLanguages[lang] ?? lang.toUpperCase();
+        final subtitle = MTrack();
+        subtitle
+          ..file = url
+          ..label = count == 1 ? name : "$name $count";
+        subtitles.add(subtitle);
+      }
+    } catch (_) {}
+    return subtitles;
   }
 
   Future<List<MTrack>> _getMoviesApiSubtitles(String playerPath) async {
