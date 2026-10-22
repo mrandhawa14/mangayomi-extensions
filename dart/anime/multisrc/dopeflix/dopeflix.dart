@@ -21,9 +21,8 @@ class DopeFlix extends MProvider {
   static const List<List<String>> _vidsparkProviders = [
     ["scrapify", "Alpha"],
     ["quasar", "Quasar"],
-    ["oreon", "Oreon"],
-    ["vaplayer", "Beta"],
     ["fsonic", "Nebula"],
+    ["vaplayer", "Beta"],
   ];
   static const String _userAgent =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -594,79 +593,110 @@ class DopeFlix extends MProvider {
     }
 
     final playerPath = isTv ? "/tv/$id/$season/$episode" : "/movie/$id";
-    final playerUrl = "$_moviesApiBaseUrl$playerPath";
-    final requestHeaders = <String, String>{
-      "Accept": "application/json",
-      "Origin": _moviesApiBaseUrl,
-      "Referer": playerUrl,
-      "User-Agent": _userAgent,
-      "x-player-key": _moviesApiPlayerKey,
-    };
-    final response = await _getMoviesApiResponse(
-      "$_moviesApiBaseUrl/api/vidora/v1$playerPath",
-      requestHeaders,
-    );
-    if (response != null &&
-        response.statusCode >= 200 &&
-        response.statusCode < 300) {
-      final data = _decodeJsonObject(response.body);
-      final sources = (data?["sources"] as List?) ?? [];
-      if (data?["result"] == true && sources.isNotEmpty) {
-        final streamUrl = sources.first["url"] ?? "";
-        if (streamUrl.toString().isNotEmpty) {
-          final isPlayable = await _isPlayableStream(
-            streamUrl.toString(),
-            _moviesApiBaseUrl,
-            playerUrl,
-          );
-          if (isPlayable) {
-            List<MTrack> subtitles = _moviesApiTracks(
-              (sources.first["tracks"] as List?) ?? [],
-            );
-            if (subtitles.isEmpty) {
-              try {
-                final subtitleResponse = await client
-                    .get(
-                      Uri.parse(
-                        "$_moviesApiBaseUrl/api/vidora/v1/subtitles$playerPath",
-                      ),
-                      headers: requestHeaders,
-                    )
-                    .timeout(const Duration(seconds: 8));
-                if (subtitleResponse.statusCode >= 200 &&
-                    subtitleResponse.statusCode < 300) {
-                  final subtitleData = _decodeJsonObject(subtitleResponse.body);
-                  subtitles = _moviesApiTracks(
-                    (subtitleData?["tracks"] as List?) ?? [],
-                    useSrc: true,
-                  );
-                }
-              } catch (_) {}
-            }
+    // Query every server at once so the player can switch between all the
+    // working ones. MoviesAPI is Server 1 on ssflix.pro, so it stays first.
+    // Only MoviesAPI publishes subtitles, so every server shares its list.
+    final subtitlesFuture = _getMoviesApiSubtitles(playerPath);
+    final deadline = DateTime.now().millisecondsSinceEpoch + 18000;
+    List<Future<MVideo?>> requests = [
+      _getMoviesApiVideo(playerPath, subtitlesFuture),
+    ];
+    for (var provider in _vidsparkProviders) {
+      requests.add(
+        _getVidsparkVideo(playerPath, provider, deadline, subtitlesFuture),
+      );
+    }
+    final results = await Future.wait(requests);
 
-            return [
-              _createSflixVideo(
-                streamUrl.toString(),
-                "MoviesAPI - HLS",
-                _moviesApiBaseUrl,
-                playerUrl,
-                subtitles,
-              ),
-            ];
-          }
-        }
+    List<MVideo> videos = [];
+    for (var video in results) {
+      if (video != null) {
+        videos.add(video);
       }
     }
-
-    final fallbackVideos = await _getVidsparkVideos(playerPath);
-    if (fallbackVideos.isNotEmpty) {
-      return fallbackVideos;
+    if (videos.isNotEmpty) {
+      return videos;
     }
 
     throw Exception(
       "No working stream is currently available for this title or episode. "
       "Try again later or choose another source.",
     );
+  }
+
+  Future<MVideo?> _getMoviesApiVideo(
+    String playerPath,
+    Future<List<MTrack>> subtitlesFuture,
+  ) async {
+    try {
+      final playerUrl = "$_moviesApiBaseUrl$playerPath";
+      final requestHeaders = <String, String>{
+        "Accept": "application/json",
+        "Origin": _moviesApiBaseUrl,
+        "Referer": playerUrl,
+        "User-Agent": _userAgent,
+        "x-player-key": _moviesApiPlayerKey,
+      };
+      final response = await _getMoviesApiResponse(
+        "$_moviesApiBaseUrl/api/vidora/v1$playerPath",
+        requestHeaders,
+      );
+      if (response != null &&
+          response.statusCode >= 200 &&
+          response.statusCode < 300) {
+        final data = _decodeJsonObject(response.body);
+        final sources = (data?["sources"] as List?) ?? [];
+        if (data?["result"] == true && sources.isNotEmpty) {
+          final streamUrl = sources.first["url"] ?? "";
+          if (streamUrl.toString().isNotEmpty) {
+            final isPlayable = await _isPlayableStream(
+              streamUrl.toString(),
+              _moviesApiBaseUrl,
+              playerUrl,
+            );
+            if (isPlayable) {
+              List<MTrack> subtitles = _moviesApiTracks(
+                (sources.first["tracks"] as List?) ?? [],
+              );
+              if (subtitles.isEmpty) {
+                subtitles = await subtitlesFuture;
+              }
+
+              return _createSflixVideo(
+                streamUrl.toString(),
+                "MoviesAPI - HLS",
+                _moviesApiBaseUrl,
+                playerUrl,
+                subtitles,
+              );
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<List<MTrack>> _getMoviesApiSubtitles(String playerPath) async {
+    try {
+      final response = await client
+          .get(
+            Uri.parse("$_moviesApiBaseUrl/api/vidora/v1/subtitles$playerPath"),
+            headers: {
+              "Accept": "application/json",
+              "Origin": _moviesApiBaseUrl,
+              "Referer": "$_moviesApiBaseUrl$playerPath",
+              "User-Agent": _userAgent,
+              "x-player-key": _moviesApiPlayerKey,
+            },
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = _decodeJsonObject(response.body);
+        return _moviesApiTracks((data?["tracks"] as List?) ?? [], useSrc: true);
+      }
+    } catch (_) {}
+    return [];
   }
 
   Future<dynamic> _getMoviesApiResponse(
@@ -694,24 +724,11 @@ class DopeFlix extends MProvider {
     return lastResponse;
   }
 
-  Future<List<MVideo>> _getVidsparkVideos(String playerPath) async {
-    final deadline = DateTime.now().millisecondsSinceEpoch + 18000;
-    for (var provider in _vidsparkProviders) {
-      if (DateTime.now().millisecondsSinceEpoch >= deadline) {
-        break;
-      }
-      final video = await _getVidsparkVideo(playerPath, provider, deadline);
-      if (video != null) {
-        return [video];
-      }
-    }
-    return [];
-  }
-
   Future<MVideo?> _getVidsparkVideo(
     String playerPath,
     List<String> provider,
     int deadline,
+    Future<List<MTrack>> subtitlesFuture,
   ) async {
     final playerUrl = "$_vidsparkBaseUrl$playerPath";
     final requestUrl = _urlWithQuery(
@@ -769,10 +786,13 @@ class DopeFlix extends MProvider {
         return null;
       }
 
-      final subtitles = _moviesApiTracks(
+      var subtitles = _moviesApiTracks(
         (sources.first["tracks"] as List?) ?? [],
         baseUrl: _vidsparkBaseUrl,
       );
+      if (subtitles.isEmpty) {
+        subtitles = await subtitlesFuture;
+      }
       return _createSflixVideo(
         streamUrl.toString(),
         "VidSpark ${provider[1]} - HLS",
