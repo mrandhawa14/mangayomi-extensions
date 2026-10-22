@@ -24,6 +24,13 @@ class DopeFlix extends MProvider {
     ["fsonic", "Nebula"],
     ["vaplayer", "Beta"],
   ];
+  static const List<String> _serverNames = [
+    "MoviesAPI",
+    "Alpha",
+    "Quasar",
+    "Nebula",
+    "Beta",
+  ];
   static const String _openSubtitlesBaseUrl =
       "https://opensubtitles-v3.strem.io/subtitles";
   static const Map<String, String> _openSubtitlesLanguages = {
@@ -650,9 +657,17 @@ class DopeFlix extends MProvider {
     }
     final results = await Future.wait(requests);
 
+    // Results follow _serverNames, so the index identifies the server.
+    final preferred = _preferredServer();
     List<MVideo> videos = [];
-    for (var video in results) {
-      if (video != null) {
+    for (var i = 0; i < results.length; i++) {
+      final video = results[i];
+      if (video == null) {
+        continue;
+      }
+      if (_serverNames[i] == preferred) {
+        videos.insert(0, video);
+      } else {
         videos.add(video);
       }
     }
@@ -691,12 +706,12 @@ class DopeFlix extends MProvider {
         if (data?["result"] == true && sources.isNotEmpty) {
           final streamUrl = sources.first["url"] ?? "";
           if (streamUrl.toString().isNotEmpty) {
-            final isPlayable = await _isPlayableStream(
+            final playlist = await _getPlayablePlaylist(
               streamUrl.toString(),
               _moviesApiBaseUrl,
               playerUrl,
             );
-            if (isPlayable) {
+            if (playlist != null) {
               List<MTrack> subtitles = _moviesApiTracks(
                 (sources.first["tracks"] as List?) ?? [],
               );
@@ -706,7 +721,7 @@ class DopeFlix extends MProvider {
 
               return _createSflixVideo(
                 streamUrl.toString(),
-                "MoviesAPI - HLS",
+                _serverLabel("MoviesAPI", playlist),
                 _moviesApiBaseUrl,
                 playerUrl,
                 subtitles,
@@ -884,7 +899,7 @@ class DopeFlix extends MProvider {
       if (validationTimeLeft <= 0) {
         return null;
       }
-      final isPlayable = await _isPlayableStream(
+      final playlist = await _getPlayablePlaylist(
         streamUrl.toString(),
         _vidsparkBaseUrl,
         playerUrl,
@@ -892,7 +907,7 @@ class DopeFlix extends MProvider {
             ? validationTimeLeft
             : 8000,
       );
-      if (!isPlayable) {
+      if (playlist == null) {
         return null;
       }
 
@@ -905,7 +920,7 @@ class DopeFlix extends MProvider {
       }
       return _createSflixVideo(
         streamUrl.toString(),
-        "VidSpark ${provider[1]} - HLS",
+        _serverLabel(provider[1], playlist),
         _vidsparkBaseUrl,
         playerUrl,
         subtitles,
@@ -915,14 +930,16 @@ class DopeFlix extends MProvider {
     }
   }
 
-  Future<bool> _isPlayableStream(
+  /// Returns the stream's playlist when it plays, "" for non-HLS streams,
+  /// and null when the stream does not respond with a playlist.
+  Future<String?> _getPlayablePlaylist(
     String streamUrl,
     String origin,
     String playerUrl, {
     int timeoutMilliseconds = 8000,
   }) async {
     if (!streamUrl.toLowerCase().contains(".m3u8")) {
-      return true;
+      return "";
     }
     try {
       final response = await client
@@ -936,12 +953,52 @@ class DopeFlix extends MProvider {
           )
           .timeout(Duration(milliseconds: timeoutMilliseconds));
       final contentType = response.headers["content-type"]?.toLowerCase() ?? "";
-      return response.statusCode >= 200 &&
+      final isPlaylist =
+          response.statusCode >= 200 &&
           response.statusCode < 300 &&
           (contentType.contains("mpegurl") ||
               response.body.trimLeft().startsWith("#EXTM3U"));
+      return isPlaylist ? response.body : null;
     } catch (_) {
-      return false;
+      return null;
+    }
+  }
+
+  /// "Server 2 · Alpha · 1080p", using the best resolution the playlist offers.
+  String _serverLabel(String name, String playlist) {
+    final number = _serverNames.indexOf(name) + 1;
+    // Classify by width so widescreen 1920x800 still reads as 1080p.
+    var width = 0;
+    final parts = playlist.split("RESOLUTION=");
+    for (var i = 1; i < parts.length; i++) {
+      final match = RegExp(r"^(\d+)x\d+").firstMatch(parts[i]);
+      final value = int.tryParse(match?.group(1) ?? "") ?? 0;
+      if (value > width) {
+        width = value;
+      }
+    }
+    var resolution = "";
+    if (width >= 3200) {
+      resolution = " · 2160p";
+    } else if (width >= 2200) {
+      resolution = " · 1440p";
+    } else if (width >= 1600) {
+      resolution = " · 1080p";
+    } else if (width >= 1100) {
+      resolution = " · 720p";
+    } else if (width > 0) {
+      resolution = " · 480p";
+    }
+    return "Server $number · $name$resolution";
+  }
+
+  String _preferredServer() {
+    try {
+      return (getPreferenceValue(source.id, "preferred_server") ?? "")
+          .toString();
+    } catch (_) {
+      // Older Mangayomi builds can lack a saved entry for a new preference.
+      return "";
     }
   }
 
@@ -1286,6 +1343,21 @@ class DopeFlix extends MProvider {
           valueIndex: 0,
           entries: ["moviesflix.uk"],
           entryValues: ["https://moviesflix.uk"],
+        ),
+      if (_usesSflixApi)
+        ListPreference(
+          key: "preferred_server",
+          title: "Preferred server",
+          summary: "Play this server first when it works. The others stay available in the player.",
+          valueIndex: 0,
+          entries: [
+            "Server 1 · MoviesAPI",
+            "Server 2 · Alpha",
+            "Server 3 · Quasar",
+            "Server 4 · Nebula",
+            "Server 5 · Beta",
+          ],
+          entryValues: _serverNames,
         ),
       ListPreference(
         key: "preferred_quality",
