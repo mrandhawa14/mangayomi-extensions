@@ -655,10 +655,30 @@ class DopeFlix extends MProvider {
         _getVidsparkVideo(playerPath, provider, deadline, subtitlesFuture),
       );
     }
-    final results = await Future.wait(requests);
-
-    // Results follow _serverNames, so the index identifies the server.
+    // Start with whatever is ready after a short budget instead of waiting
+    // for the slowest server (Quasar takes 4-5s); always wait for the
+    // preferred one. Results follow _serverNames, so the index is the server.
     final preferred = _preferredServer();
+    final preferredIndex = _serverNames.indexOf(preferred);
+    List<MVideo?> results = [];
+    List<bool> finished = [];
+    for (var i = 0; i < requests.length; i++) {
+      results.add(null);
+      finished.add(false);
+      _recordResult(requests[i], results, finished, i);
+    }
+    // The interpreter rejects `break` in an async loop, so use a flag.
+    final started = DateTime.now().millisecondsSinceEpoch;
+    var waiting = finished.contains(false);
+    while (waiting) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      final elapsed = DateTime.now().millisecondsSinceEpoch - started;
+      final anyReady = results.any((video) => video != null);
+      final preferredPending = preferredIndex >= 0 && !finished[preferredIndex];
+      final budgetSpent = elapsed >= 3000 && anyReady && !preferredPending;
+      waiting = finished.contains(false) && !budgetSpent && elapsed < 20000;
+    }
+
     List<MVideo> videos = [];
     for (var i = 0; i < results.length; i++) {
       final video = results[i];
@@ -679,6 +699,19 @@ class DopeFlix extends MProvider {
       "No working stream is currently available for this title or episode. "
       "Try again later or choose another source.",
     );
+  }
+
+  Future<void> _recordResult(
+    Future<MVideo?> request,
+    List<MVideo?> results,
+    List<bool> finished,
+    int index,
+  ) async {
+    try {
+      final video = await request;
+      results[index] = video;
+    } catch (_) {}
+    finished[index] = true;
   }
 
   Future<MVideo?> _getMoviesApiVideo(
