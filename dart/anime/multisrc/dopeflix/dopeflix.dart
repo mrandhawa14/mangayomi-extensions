@@ -12,7 +12,9 @@ class DopeFlix extends MProvider {
   static const String _tmdbBaseUrl = "https://api.themoviedb.org/3";
   static const String _tmdbImageBaseUrl = "https://image.tmdb.org/t/p/w500";
   static const String _tmdbApiKey = "31eb6ae13f030d2e334cdd978cfc72b7";
-  static const String _moviesApiBaseUrl = "https://moviesapi.to";
+  // moviesapi.to now answers every request with a 301 to vidspark.to, and the
+  // API only accepts the key with a matching Origin, so call it directly.
+  static const String _moviesApiBaseUrl = "https://vidspark.to";
   static const String _moviesApiPlayerKey =
       "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13";
   static const String _vidsparkBaseUrl = "https://cdn.vidspark.to";
@@ -727,9 +729,10 @@ class DopeFlix extends MProvider {
         "User-Agent": _userAgent,
         "x-player-key": _moviesApiPlayerKey,
       };
-      final response = await _getMoviesApiResponse(
+      final response = await _getWithRetry(
         "$_moviesApiBaseUrl/api/vidora/v1$playerPath",
         requestHeaders,
+        DateTime.now().millisecondsSinceEpoch + 18000,
       );
       if (response != null &&
           response.statusCode >= 200 &&
@@ -857,16 +860,25 @@ class DopeFlix extends MProvider {
     return [];
   }
 
-  Future<dynamic> _getMoviesApiResponse(
+  /// GETs [url], retrying once when the server reports a temporary failure:
+  /// a rate limit (429) or Cloudflare failing to reach the origin (502-504).
+  /// Every attempt stays inside [deadline] so a retry never delays playback
+  /// past the shared server budget.
+  Future<dynamic> _getWithRetry(
     String url,
     Map<String, String> headers,
+    int deadline,
   ) async {
     dynamic lastResponse;
     for (var attempt = 0; attempt < 2; attempt++) {
+      final timeLeft = deadline - DateTime.now().millisecondsSinceEpoch;
+      if (timeLeft <= 0) {
+        return lastResponse;
+      }
       try {
         lastResponse = await client
             .get(Uri.parse(url), headers: headers)
-            .timeout(const Duration(seconds: 8));
+            .timeout(Duration(milliseconds: timeLeft < 8000 ? timeLeft : 8000));
       } catch (_) {
         return null;
       }
@@ -877,7 +889,10 @@ class DopeFlix extends MProvider {
       if (!isTemporary || attempt == 1) {
         return lastResponse;
       }
-      await Future.delayed(const Duration(milliseconds: 500));
+      // A rate limit needs longer to clear than a dropped origin connection.
+      await Future.delayed(
+        Duration(milliseconds: status == 429 ? 1500 : 500),
+      );
     }
     return lastResponse;
   }
@@ -894,27 +909,16 @@ class DopeFlix extends MProvider {
       {"source": provider[0]},
     );
     try {
-      final requestTimeLeft = deadline - DateTime.now().millisecondsSinceEpoch;
-      if (requestTimeLeft <= 0) {
-        return null;
-      }
-      final response = await client
-          .get(
-            Uri.parse(requestUrl),
-            headers: {
-              "Accept": "application/json",
-              "Origin": _vidsparkBaseUrl,
-              "Referer": playerUrl,
-              "User-Agent": _userAgent,
-              "x-player-key": _vidsparkPlayerKey,
-            },
-          )
-          .timeout(
-            Duration(
-              milliseconds: requestTimeLeft < 8000 ? requestTimeLeft : 8000,
-            ),
-          );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      final response = await _getWithRetry(requestUrl, {
+        "Accept": "application/json",
+        "Origin": _vidsparkBaseUrl,
+        "Referer": playerUrl,
+        "User-Agent": _userAgent,
+        "x-player-key": _vidsparkPlayerKey,
+      }, deadline);
+      if (response == null ||
+          response.statusCode < 200 ||
+          response.statusCode >= 300) {
         return null;
       }
 
